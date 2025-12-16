@@ -3,9 +3,26 @@ package com.university.restaurant.model.menu;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * @author Efua Itoadon-Umane
+ * 
+ * This class represents the course of meal: DESSERT
+ * This class is for creating new desser objects to add to the menu. OR for placing orders
+ */
+
 public final class Dessert extends MenuItem {
     private List<String> allergens;
-
+    
+    /**
+     *
+     * @param id
+     * @param name
+     * @param description
+     * @param price
+     * @param dietaryType
+     * @param allergens tells us whether there are allergens in the desert (useful bcuz dessert
+     *                  are prone to containing ingredients that ppl are allergic too)
+     */
     public Dessert(String id, String name, String description, double price, DietaryType dietaryType,
                    List<String> allergens){
         super(id, name, description, price, MenuCategory.DESSERT, dietaryType);
@@ -33,3 +50,4 @@ public final class Dessert extends MenuItem {
         );
     }
 }
+

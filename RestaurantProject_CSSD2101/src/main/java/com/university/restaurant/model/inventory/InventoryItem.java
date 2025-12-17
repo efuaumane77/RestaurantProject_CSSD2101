@@ -68,4 +68,8 @@ public final class InventoryItem {
     public String getId() { return id; }
     public String getName() { return name; }
     public int getStockLevel() { return stockLevel; }
+
+    public String getUnit() { return unit; }
+    public int getReorderThreshold() { return reorderThreshold; }
+    public int getMaxCapacity() { return maxCapacity; }
 }

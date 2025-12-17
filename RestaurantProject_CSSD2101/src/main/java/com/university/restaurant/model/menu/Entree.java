@@ -35,7 +35,7 @@ public final class Entree extends MenuItem {
     public double calculatePrice(){ return price;}
     @Override
     public boolean requiresKitchenPrep(){ return true;}
-    @Override List<String> getRequiredIngredients(){ return List.copyOf(ingredients);}
+    @Override public List<String> getRequiredIngredients(){ return List.copyOf(ingredients);}
 
     public int getPrepTimeMinutes(){ return prepTimeMinutes;}
 
@@ -51,5 +51,10 @@ public final class Entree extends MenuItem {
                 this.getPrepTimeMinutes()
         );
     }
+
+    public DietaryType getDietaryType() {
+        return dietaryType;
+    }
+
 }
 

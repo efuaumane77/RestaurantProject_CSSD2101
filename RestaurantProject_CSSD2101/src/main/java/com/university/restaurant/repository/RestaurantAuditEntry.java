@@ -20,6 +20,42 @@ public final class RestaurantAuditEntry {
         this.hash = sha256(userId + role + action + entityType + entityId + details + timestamp + prevHash);
     }
 
+    public String getUserId() {
+        return userId;
+    }
+
+    public String getRole() {
+        return role;
+    }
+
+    public String getAction() {
+        return action;
+    }
+
+    public String getEntityType() {
+        return entityType;
+    }
+
+    public String getEntityId() {
+        return entityId;
+    }
+
+    public String getDetails() {
+        return details;
+    }
+
+    public String getPrevHash() {
+        return prevHash;
+    }
+
+    public String getHash() {
+        return hash;
+    }
+
+    public LocalDateTime getTimestamp() {
+        return timestamp;
+    }
+
     static String sha256(String data) {
         try {
             MessageDigest md = MessageDigest.getInstance("SHA-256");

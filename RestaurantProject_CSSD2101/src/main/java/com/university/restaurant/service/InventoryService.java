@@ -49,7 +49,7 @@ public class InventoryService implements InventoryServicePort {
      * @param menuRepo the menu repository for updating item availability
      * @param a        the audit log repository
      */
-    InventoryService(InventoryRepository r, MenuRepository menuRepo, RestaurantAuditLogRepository a) {
+    public InventoryService(InventoryRepository r, MenuRepository menuRepo, RestaurantAuditLogRepository a) {
         this.repo = r;
         this.menuRepo = menuRepo;
         this.audits = a;

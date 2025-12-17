@@ -163,6 +163,6 @@ class MenuServiceTest {
         List<MenuItem> results = service.listMenuAvailableItems();
 
         assertEquals(1, results.size());
-        assertEquals("i1", results.getFirst().getId());
+        assertEquals("i1", results.get(0).getId());
     }
 }

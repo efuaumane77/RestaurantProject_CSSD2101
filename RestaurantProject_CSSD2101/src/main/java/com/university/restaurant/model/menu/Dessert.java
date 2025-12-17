@@ -49,5 +49,8 @@ public final class Dessert extends MenuItem {
                 this.getAllergens()
         );
     }
+    public DietaryType getDietaryType() {
+        return dietaryType;
+    }
 }
 

@@ -46,4 +46,11 @@ public final class Reservation {
     public ReservationStatus getStatus() { return status; }
     public int getAssignedTable() { return assignedTable; }
 
+    public Customer getCustomer() {
+        return customer;
+    }
+    public int getPartySize() {
+        return partySize;
+    }
+
 }

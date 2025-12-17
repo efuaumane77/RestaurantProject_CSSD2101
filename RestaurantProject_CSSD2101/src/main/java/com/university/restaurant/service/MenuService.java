@@ -46,7 +46,7 @@ public class MenuService implements MenuServicePort {
      * @param r       the menu repository
      * @param a       the audit log repository
      */
-    MenuService(MenuRepository r, RestaurantAuditLogRepository a) {
+    public MenuService(MenuRepository r, RestaurantAuditLogRepository a) {
         this.repo = r;
         this.audits = a;
     }

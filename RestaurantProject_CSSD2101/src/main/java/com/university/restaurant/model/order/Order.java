@@ -69,4 +69,6 @@ public final class Order {
     }
 
     public Payment getPayment(){ return payment; }
+
+    public String getAssignedWaiterId() { return assignedWaiterId; }
 }

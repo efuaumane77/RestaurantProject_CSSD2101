@@ -30,4 +30,6 @@ public final class Payment{
     public String toString(){
         return "%s: %.2f [%s]".formatted(method, amount, transactionId);
     }
+
+    public PaymentMethod getMethod() { return method; }
 }

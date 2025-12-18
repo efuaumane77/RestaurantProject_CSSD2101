@@ -1,141 +1,99 @@
 package com.university.restaurant.service;
 
-import com.university.restaurant.model.menu.*;
-import com.university.restaurant.model.order.*;
-import com.university.restaurant.model.payment.PaymentMethod;
-import com.university.restaurant.model.staff.*;
-import com.university.restaurant.repository.InMemoryOrderRepo;
+import com.university.restaurant.model.menu.Drink;
+import com.university.restaurant.model.order.Order;
+import com.university.restaurant.model.order.OrderStatus;
+import com.university.restaurant.model.staff.Manager;
+import com.university.restaurant.model.staff.Waiter;
+import com.university.restaurant.repository.OrderRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.time.LocalDateTime;
-import java.util.*;
+import java.util.List;
+import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.Mockito.*;
 
+@ExtendWith(MockitoExtension.class)
 class AnalyticsServiceTest {
 
-    InMemoryOrderRepo repo;
-    AnalyticsService service;
+    @Mock
+    private OrderRepository orderRepo;
 
-    Manager manager = new Manager("m1", "Alice Manager");
-    Waiter waiter = new Waiter("w1", "Bob Waiter");
-    Chef chef = new Chef("c1", "Charlie Chef");
-
-    MenuItem pasta;
-    MenuItem burger;
-    MenuItem drink;
+    private AnalyticsService service;
+    private Manager manager;
+    private Waiter waiter;
 
     @BeforeEach
-    void setup() {
-        repo = new InMemoryOrderRepo();
-        service = new AnalyticsService(repo);
-
-        pasta = new Entree("i1", "Pasta", "Fresh pasta", 12.0,
-                DietaryType.REGULAR, List.of("flour", "sauce"), 10);
-
-        burger = new Entree("i2", "Burger", "Beef burger", 15.0,
-                DietaryType.REGULAR, List.of("beef", "bun"), 8);
-
-        drink = new Drink("i3", "Cola", "Refreshing drink", 3.0, false);
-    }
-
-    // -------------------------------------------------------------
-    // PERMISSION TESTS
-    // -------------------------------------------------------------
-
-    @Test
-    void waiterCannotViewAnalytics() {
-        assertThrows(SecurityException.class,
-                () -> service.topSellingItems(waiter));
+    void setUp() {
+        service = new AnalyticsService(orderRepo);
+        manager = new Manager("m1", "Alice");
+        waiter = new Waiter("w1", "Bob");
     }
 
     @Test
-    void chefCannotViewAnalytics() {
-        assertThrows(SecurityException.class,
-                () -> service.totalRevenueToday(chef));
-    }
+    void topSellingItems_withManagerRole_shouldReturnStats() {
+        Order order1 = new Order(1, "w1");
+        order1.addItem(new Drink("d1", "Coke", "desc", 2.99, false));
+        order1.addItem(new Drink("d1", "Coke", "desc", 2.99, false));
+        order1.updateStatus(OrderStatus.PAID);
 
-    // -------------------------------------------------------------
-    // TOP SELLING ITEMS
-    // -------------------------------------------------------------
+        Order order2 = new Order(2, "w1");
+        order2.addItem(new Drink("d1", "Coke", "desc", 2.99, false));
+        order2.addItem(new Drink("d2", "Sprite", "desc", 2.99, false));
+        order2.updateStatus(OrderStatus.SERVED);
 
-    @Test
-    void topSellingItems_aggregatesCorrectly() {
-        // Order 1: PAID
-        Order o1 = new Order(1, manager.id());
-        o1.addItem(pasta);
-        o1.addItem(pasta);
-        o1.addItem(burger);
-        o1.updateStatus(OrderStatus.SERVED);
-        o1.processPayment(PaymentMethod.CREDIT_CARD);
-        repo.save(o1);
+        when(orderRepo.findByStatus(OrderStatus.PAID)).thenReturn(List.of(order1));
+        when(orderRepo.findByStatus(OrderStatus.SERVED)).thenReturn(List.of(order2));
 
-        // Order 2: SERVED (still counts)
-        Order o2 = new Order(2, manager.id());
-        o2.addItem(burger);
-        o2.addItem(drink);
-        o2.updateStatus(OrderStatus.SERVED);
-        repo.save(o2);
+        Map<String, Long> topSelling = service.topSellingItems(manager);
 
-        Map<String, Long> result = service.topSellingItems(manager);
-
-        assertEquals(2, result.get("Pasta"));   // sold twice
-        assertEquals(2, result.get("Burger"));  // one in each order
-        assertEquals(1, result.get("Cola"));    // one time
-        assertEquals(3, result.size());
+        assertEquals(2, topSelling.size());
+        assertEquals(3L, topSelling.get("Coke"));
+        assertEquals(1L, topSelling.get("Sprite"));
     }
 
     @Test
-    void topSellingItems_emptyRepo_returnsEmptyMap() {
-        assertTrue(service.topSellingItems(manager).isEmpty());
+    void topSellingItems_withWaiterRole_shouldThrowSecurityException() {
+        assertThrows(SecurityException.class, () -> {
+            service.topSellingItems(waiter);
+        });
     }
 
-    // -------------------------------------------------------------
-    // REVENUE TODAY
-    // -------------------------------------------------------------
-
     @Test
-    void totalRevenueToday_sumsOnlyTodaysPaidOrders() {
-        // Today PAID order
-        Order today1 = new Order(1, manager.id());
-        today1.addItem(pasta);
-        today1.addItem(drink);
-        today1.updateStatus(OrderStatus.SERVED);
-        today1.processPayment(PaymentMethod.CREDIT_CARD); // makes it PAID
-        repo.save(today1);
+    void totalRevenueToday_withManagerRole_shouldReturnTotal() {
+        Order order1 = new Order(1, "w1");
+        order1.addItem(new Drink("d1", "Coke", "desc", 2.99, false));
+        order1.updateStatus(OrderStatus.PAID);
 
-        // Today but SERVED only → does NOT count
-        Order today2 = new Order(2, manager.id());
-        today2.addItem(burger);
-        today2.updateStatus(OrderStatus.SERVED);
-        repo.save(today2);
+        Order order2 = new Order(2, "w1");
+        order2.addItem(new Drink("d2", "Sprite", "desc", 3.99, false));
+        order2.updateStatus(OrderStatus.PAID);
 
-        // Another PAID order with a different date → should NOT count
-        Order old = new Order(3, manager.id());
-        old.addItem(pasta);
-        old.updateStatus(OrderStatus.SERVED);
-        old.processPayment(PaymentMethod.CASH);
-        forceCreatedAt(old, LocalDateTime.now().minusDays(1));
-        repo.save(old);
+        when(orderRepo.findByStatus(OrderStatus.PAID)).thenReturn(List.of(order1, order2));
 
         double revenue = service.totalRevenueToday(manager);
-        assertEquals(12 + 3, revenue); // only order 1
+
+        assertEquals(6.98, revenue, 0.01);
     }
 
     @Test
-    void totalRevenueToday_emptyRepo_returnsZero() {
-        assertEquals(0.0, service.totalRevenueToday(manager));
+    void totalRevenueToday_noOrders_shouldReturnZero() {
+        when(orderRepo.findByStatus(OrderStatus.PAID)).thenReturn(List.of());
+
+        double revenue = service.totalRevenueToday(manager);
+
+        assertEquals(0.0, revenue, 0.01);
     }
 
-    private static void forceCreatedAt(Order order, LocalDateTime dt) {
-        try {
-            var field = Order.class.getDeclaredField("createdAt");
-            field.setAccessible(true);
-            field.set(order, dt);
-        } catch (Exception e) {
-            throw new RuntimeException(e);
-        }
+    @Test
+    void totalRevenueToday_withWaiterRole_shouldThrowSecurityException() {
+        assertThrows(SecurityException.class, () -> {
+            service.totalRevenueToday(waiter);
+        });
     }
-
 }

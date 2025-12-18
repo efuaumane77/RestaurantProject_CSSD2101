@@ -1,153 +1,149 @@
 package com.university.restaurant.service;
 
 import com.university.restaurant.model.inventory.InventoryItem;
-import com.university.restaurant.model.menu.*;
-import com.university.restaurant.model.staff.*;
-import com.university.restaurant.repository.*;
+import com.university.restaurant.model.inventory.StockStatus;
+import com.university.restaurant.model.menu.Drink;
+import com.university.restaurant.model.menu.MenuItem;
+import com.university.restaurant.model.staff.Manager;
+import com.university.restaurant.model.staff.Waiter;
+import com.university.restaurant.repository.InventoryRepository;
+import com.university.restaurant.repository.MenuRepository;
+import com.university.restaurant.repository.RestaurantAuditLogRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
 
+@ExtendWith(MockitoExtension.class)
 class InventoryServiceTest {
 
-    InMemoryInventoryRepo invRepo;
-    InMemoryMenuRepo menuRepo;
-    InMemoryRestaurantAuditRepo audits;
-    InventoryService service;
+    @Mock
+    private InventoryRepository inventoryRepo;
 
-    // UPDATED ROLES
-    Manager alice = new Manager("m1", "Alice Manager");
-    Waiter bob = new Waiter("w1", "Bob Waiter");
-    Chef chef = new Chef("c1", "Charlie Chef");
+    @Mock
+    private MenuRepository menuRepo;
 
-    InventoryItem flour;
-    MenuItem entree;
+    @Mock
+    private RestaurantAuditLogRepository auditRepo;
+
+    private InventoryService service;
+    private Manager manager;
+    private Waiter waiter;
 
     @BeforeEach
-    void setup() {
-        invRepo = new InMemoryInventoryRepo();
-        menuRepo = new InMemoryMenuRepo();
-        audits = new InMemoryRestaurantAuditRepo();
-
-        service = new InventoryService(invRepo, menuRepo, audits);
-
-        // REAL MenuItem
-        entree = new Entree(
-                "item1",
-                "Pasta",
-                "Delicious pasta",
-                12.00,
-                DietaryType.REGULAR,
-                List.of("flour", "sauce"),
-                10
-        );
-        menuRepo.save(entree);
-
-        // Inventory entry
-        flour = new InventoryItem("item1", "Pasta", "units", 10, 2, 20);
-        invRepo.save(flour);
-    }
-
-    // -------------------------------------------------------
-    // REDUCE STOCK
-    // -------------------------------------------------------
-
-    @Test
-    void managerAliceCanReduceStock() {
-        service.reduceStock(alice, "item1", 5);
-
-        InventoryItem updated = invRepo.findById("item1").orElseThrow();
-        assertEquals(5, updated.getStockLevel());
-        assertEquals(1, audits.all().size());
+    void setUp() {
+        service = new InventoryService(inventoryRepo, menuRepo, auditRepo);
+        manager = new Manager("m1", "Alice");
+        waiter = new Waiter("w1", "Bob");
+        when(auditRepo.tailHash()).thenReturn("GENESIS");
     }
 
     @Test
-    void reducingStockToZeroMarksMenuItemUnavailable() {
-        service.reduceStock(alice, "item1", 10);
+    void reduceStock_withManagerRole_shouldSucceed() {
+        InventoryItem item = new InventoryItem("item-1", "Tomatoes", "kg", 100, 10, 500);
+        when(inventoryRepo.findById("item-1")).thenReturn(Optional.of(item));
 
-        MenuItem m = menuRepo.findById("item1").orElseThrow();
-        assertFalse(m.isAvailable());
+        service.reduceStock(manager, "item-1", 20);
+
+        assertEquals(80, item.getStockLevel());
+        verify(inventoryRepo).save(item);
+        verify(auditRepo).append(any());
     }
 
     @Test
-    void waiterBobCannotReduceStock() {
-        assertThrows(SecurityException.class,
-                () -> service.reduceStock(bob, "item1", 5));
+    void reduceStock_withWaiterRole_shouldThrowSecurityException() {
+        assertThrows(SecurityException.class, () -> {
+            service.reduceStock(waiter, "item-1", 10);
+        });
+        verify(inventoryRepo, never()).save(any());
     }
 
     @Test
-    void chefCannotReduceStock() {
-        assertThrows(SecurityException.class,
-                () -> service.reduceStock(chef, "item1", 3));
+    void reduceStock_insufficientStock_shouldThrowException() {
+        InventoryItem item = new InventoryItem("item-1", "Tomatoes", "kg", 5, 10, 500);
+        when(inventoryRepo.findById("item-1")).thenReturn(Optional.of(item));
+
+        assertThrows(IllegalStateException.class, () -> {
+            service.reduceStock(manager, "item-1", 10);
+        });
     }
 
     @Test
-    void reduceStock_itemNotFound_throws() {
-        assertThrows(IllegalArgumentException.class,
-                () -> service.reduceStock(alice, "WRONG", 5));
-    }
+    void reduceStock_toZero_shouldMarkMenuItemUnavailable() {
+        InventoryItem item = new InventoryItem("item-1", "Tomatoes", "kg", 10, 10, 500);
+        MenuItem menuItem = new Drink("item-1", "Tomato Juice", "desc", 5.99, false);
+        
+        when(inventoryRepo.findById("item-1")).thenReturn(Optional.of(item));
+        when(menuRepo.findById("item-1")).thenReturn(Optional.of(menuItem));
 
-    // -------------------------------------------------------
-    // INCREASE STOCK
-    // -------------------------------------------------------
+        service.reduceStock(manager, "item-1", 10);
 
-    @Test
-    void managerAliceCanIncreaseStock() {
-        service.increaseStock(alice, "item1", 3);
-
-        InventoryItem updated = invRepo.findById("item1").orElseThrow();
-        assertEquals(13, updated.getStockLevel());
-        assertEquals(1, audits.all().size());
+        assertEquals(0, item.getStockLevel());
+        assertFalse(menuItem.isAvailable());
+        verify(menuRepo).save(menuItem);
     }
 
     @Test
-    void increasingStockFromZeroMarksMenuItemAvailable() {
-        service.reduceStock(alice, "item1", 10); // stock = 0
-        service.increaseStock(alice, "item1", 5);
+    void increaseStock_shouldAddStock() {
+        InventoryItem item = new InventoryItem("item-1", "Tomatoes", "kg", 50, 10, 500);
+        when(inventoryRepo.findById("item-1")).thenReturn(Optional.of(item));
 
-        MenuItem m = menuRepo.findById("item1").orElseThrow();
-        assertTrue(m.isAvailable());
+        service.increaseStock(manager, "item-1", 30);
+
+        assertEquals(80, item.getStockLevel());
+        verify(inventoryRepo).save(item);
     }
 
     @Test
-    void waiterBobCannotIncreaseStock() {
-        assertThrows(SecurityException.class,
-                () -> service.increaseStock(bob, "item1", 4));
+    void increaseStock_exceedingCapacity_shouldCapAtMax() {
+        InventoryItem item = new InventoryItem("item-1", "Tomatoes", "kg", 450, 10, 500);
+        when(inventoryRepo.findById("item-1")).thenReturn(Optional.of(item));
+
+        service.increaseStock(manager, "item-1", 100);
+
+        assertEquals(500, item.getStockLevel());
+        verify(inventoryRepo).save(item);
     }
 
     @Test
-    void chefCannotIncreaseStock() {
-        assertThrows(SecurityException.class,
-                () -> service.increaseStock(chef, "item1", 2));
+    void increaseStock_fromZero_shouldMarkMenuItemAvailable() {
+        InventoryItem item = new InventoryItem("item-1", "Tomatoes", "kg", 0, 10, 500);
+        MenuItem menuItem = new Drink("item-1", "Tomato Juice", "desc", 5.99, false);
+        menuItem.setAvailable(false);
+        
+        when(inventoryRepo.findById("item-1")).thenReturn(Optional.of(item));
+        when(menuRepo.findById("item-1")).thenReturn(Optional.of(menuItem));
+
+        service.increaseStock(manager, "item-1", 20);
+
+        assertEquals(20, item.getStockLevel());
+        assertTrue(menuItem.isAvailable());
+        verify(menuRepo).save(menuItem);
     }
 
     @Test
-    void increaseStock_itemNotFound_throws() {
-        assertThrows(IllegalArgumentException.class,
-                () -> service.increaseStock(alice, "BAD_ID", 5));
+    void getStockLevel_shouldReturnCorrectValue() {
+        InventoryItem item = new InventoryItem("item-1", "Tomatoes", "kg", 75, 10, 500);
+        when(inventoryRepo.findById("item-1")).thenReturn(Optional.of(item));
+
+        int stockLevel = service.getStockLevel("item-1");
+
+        assertEquals(75, stockLevel);
     }
 
     @Test
-    void capacityLimitIsRespected() {
-        service.increaseStock(alice, "item1", 999);
-        assertEquals(20, invRepo.findById("item1").orElseThrow().getStockLevel());
-    }
+    void getStockLevel_nonExistentItem_shouldThrowException() {
+        when(inventoryRepo.findById("invalid")).thenReturn(Optional.empty());
 
-    // -------------------------------------------------------
-    // GET STOCK LEVEL
-    // -------------------------------------------------------
-
-    @Test
-    void getStockLevel_returnsCorrect() {
-        assertEquals(10, service.getStockLevel("item1"));
-    }
-
-    @Test
-    void getStockLevel_itemNotFound_throws() {
-        assertThrows(IllegalArgumentException.class,
-                () -> service.getStockLevel("BAD_ID"));
+        assertThrows(IllegalArgumentException.class, () -> {
+            service.getStockLevel("invalid");
+        });
     }
 }

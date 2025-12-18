@@ -48,7 +48,7 @@ public final class Order {
         this.status = OrderStatus.PAID;
     }
 
-    boolean requiresKitchenPrep(){
+    public boolean requiresKitchenPrep(){
         return items.stream().anyMatch(MenuItem::requiresKitchenPrep);
     }
 

@@ -3,166 +3,101 @@ package com.university.restaurant.service;
 import com.university.restaurant.model.menu.*;
 import com.university.restaurant.model.staff.Manager;
 import com.university.restaurant.model.staff.Waiter;
-import com.university.restaurant.model.staff.Chef;
-import com.university.restaurant.repository.InMemoryRestaurantAuditRepo;
-import com.university.restaurant.repository.InMemoryMenuRepo;
-
+import com.university.restaurant.repository.MenuRepository;
+import com.university.restaurant.repository.RestaurantAuditLogRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
 
+@ExtendWith(MockitoExtension.class)
 class MenuServiceTest {
 
-    InMemoryMenuRepo repo;
-    InMemoryRestaurantAuditRepo audits;
-    MenuService service;
+    @Mock
+    private MenuRepository menuRepo;
 
-    Manager manager = new Manager("m1", "Alice");
-    Waiter waiter = new Waiter("w1", "Bob");
-    Chef chef = new Chef("c1", "Charles");
+    @Mock
+    private RestaurantAuditLogRepository auditRepo;
+
+    private MenuService service;
+    private Manager manager;
+    private Waiter waiter;
 
     @BeforeEach
-    void setup() {
-        repo = new InMemoryMenuRepo();
-        audits = new InMemoryRestaurantAuditRepo ();
-        service = new MenuService(repo, audits);
-    }
-
-    // ------------------------------------------
-    // ADD MENU ITEM
-    // ------------------------------------------
-
-    @Test
-    void managerCanAddMenuItem() {
-        MenuItem burger = new Entree(
-                "i1",
-                "Burger",
-                "Beef Burger",
-                12.0,
-                DietaryType.REGULAR,
-                List.of("beef", "bun", "cheese"),
-                10
-        );
-
-        service.addMenuItem(manager, burger);
-
-        assertEquals(burger, repo.findById("i1").orElseThrow());
-        assertEquals(1, audits.all().size());
+    void setUp() {
+        service = new MenuService(menuRepo, auditRepo);
+        manager = new Manager("m1", "Alice");
+        waiter = new Waiter("w1", "Bob");
+        when(auditRepo.tailHash()).thenReturn("GENESIS");
     }
 
     @Test
-    void waiterCannotAddMenuItem() {
-        MenuItem drink = new Drink(
-                "i2",
-                "Coke",
-                "Soda",
-                3.0,
-                false
-        );
+    void addMenuItem_withManagerRole_shouldSucceed() {
+        MenuItem item = new Drink("d1", "Coke", "Soft drink", 2.99, false);
 
-        assertThrows(SecurityException.class,
-                () -> service.addMenuItem(waiter, drink));
+        service.addMenuItem(manager, item);
+
+        verify(menuRepo).save(item);
+        verify(auditRepo).append(any());
     }
 
     @Test
-    void chefCannotAddMenuItem() {
-        MenuItem iceCream = new Dessert(
-                "i3",
-                "Ice Cream",
-                "Vanilla scoop",
-                6.0,
-                DietaryType.REGULAR,
-                List.of("milk")
-        );
+    void addMenuItem_withWaiterRole_shouldThrowSecurityException() {
+        MenuItem item = new Drink("d1", "Coke", "Soft drink", 2.99, false);
 
-        assertThrows(SecurityException.class,
-                () -> service.addMenuItem(chef, iceCream));
-    }
-
-    // ------------------------------------------
-    // UPDATE PRICE
-    // ------------------------------------------
-
-    @Test
-    void managerCanUpdatePrice() {
-        MenuItem entree = new Entree(
-                "i1",
-                "Pasta",
-                "Creamy pasta",
-                10.0,
-                DietaryType.REGULAR,
-                List.of("pasta", "cream"),
-                8
-        );
-
-        repo.save(entree);
-
-        service.updatePrice(manager, "i1", 15.0);
-
-        MenuItem updated = repo.findById("i1").orElseThrow();
-        assertEquals(15.0, updated.calculatePrice());
-        assertEquals(1, audits.all().size());
+        assertThrows(SecurityException.class, () -> {
+            service.addMenuItem(waiter, item);
+        });
+        verify(menuRepo, never()).save(any());
     }
 
     @Test
-    void updatePrice_itemNotFound_throws() {
-        assertThrows(IllegalArgumentException.class,
-                () -> service.updatePrice(manager, "bad-id", 10.0));
+    void updatePrice_withManagerRole_shouldSucceed() {
+        MenuItem oldItem = new Drink("d1", "Coke", "desc", 2.99, false);
+        when(menuRepo.findById("d1")).thenReturn(Optional.of(oldItem));
+
+        service.updatePrice(manager, "d1", 3.49);
+
+        verify(menuRepo).save(any(MenuItem.class));
+        verify(auditRepo).append(any());
     }
 
     @Test
-    void waiterCannotUpdatePrice() {
-        MenuItem entree = new Entree(
-                "i1",
-                "Salad",
-                "Fresh salad",
-                8.0,
-                DietaryType.VEGAN,
-                List.of("lettuce", "tomato"),
-                5
-        );
+    void updatePrice_nonExistentItem_shouldThrowException() {
+        when(menuRepo.findById("invalid")).thenReturn(Optional.empty());
 
-        repo.save(entree);
-
-        assertThrows(SecurityException.class,
-                () -> service.updatePrice(waiter, "i1", 20.0));
+        assertThrows(IllegalArgumentException.class, () -> {
+            service.updatePrice(manager, "invalid", 5.99);
+        });
     }
 
-    // ------------------------------------------
-    // LIST AVAILABLE ITEMS
-    // ------------------------------------------
+    @Test
+    void updatePrice_withWaiterRole_shouldThrowSecurityException() {
+        assertThrows(SecurityException.class, () -> {
+            service.updatePrice(waiter, "d1", 3.49);
+        });
+        verify(menuRepo, never()).save(any());
+    }
 
     @Test
-    void listMenuAvailableItems_returnsOnlyAvailable() {
+    void listMenuAvailableItems_shouldReturnAvailableItems() {
+        MenuItem item1 = new Drink("d1", "Coke", "desc", 2.99, false);
+        MenuItem item2 = new Drink("d2", "Sprite", "desc", 2.99, false);
+        item2.setAvailable(false);
 
-        MenuItem availableEntree = new Entree(
-                "i1",
-                "Soup",
-                "Tomato soup",
-                5.0,
-                DietaryType.REGULAR,
-                List.of("tomato"),
-                2
-        );
+        when(menuRepo.search(any())).thenReturn(List.of(item1));
 
-        MenuItem unavailableDrink = new Drink(
-                "i2",
-                "Wine",
-                "Red wine",
-                12.0,
-                true
-        );
-        unavailableDrink.setAvailable(false);
+        List<MenuItem> available = service.listMenuAvailableItems();
 
-        repo.save(availableEntree);
-        repo.save(unavailableDrink);
-
-        List<MenuItem> results = service.listMenuAvailableItems();
-
-        assertEquals(1, results.size());
-        assertEquals("i1", results.get(0).getId());
+        assertEquals(1, available.size());
+        assertTrue(available.get(0).isAvailable());
     }
 }

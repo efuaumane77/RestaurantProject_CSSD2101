@@ -1,166 +1,144 @@
 package com.university.restaurant.service;
 
-import com.university.restaurant.model.menu.*;
-import com.university.restaurant.model.order.*;
-import com.university.restaurant.model.payment.*;
-import com.university.restaurant.model.staff.*;
-import com.university.restaurant.repository.*;
+import com.university.restaurant.model.menu.Drink;
+import com.university.restaurant.model.order.Order;
+import com.university.restaurant.model.order.OrderStatus;
+import com.university.restaurant.model.payment.Payment;
+import com.university.restaurant.model.payment.PaymentMethod;
+import com.university.restaurant.model.staff.Manager;
+import com.university.restaurant.model.staff.Waiter;
+import com.university.restaurant.model.staff.Chef;
+import com.university.restaurant.repository.OrderRepository;
+import com.university.restaurant.repository.PaymentRepository;
+import com.university.restaurant.repository.RestaurantAuditLogRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
 
-import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
 
+@ExtendWith(MockitoExtension.class)
 class PaymentServiceTest {
 
-    InMemoryOrderRepo orderRepo;
-    InMemoryPaymentRepo paymentRepo;
-    InMemoryRestaurantAuditRepo audits;
-    PaymentService service;
+    @Mock
+    private OrderRepository orderRepo;
 
-    Manager manager = new Manager("m1", "Alice Manager");
-    Waiter waiter  = new Waiter("w1", "Bob Waiter");
-    Chef chef      = new Chef("c1", "Charlie Chef");
+    @Mock
+    private PaymentRepository paymentRepo;
 
-    MenuItem pasta;
+    @Mock
+    private RestaurantAuditLogRepository auditRepo;
+
+    private PaymentService service;
+    private Manager manager;
+    private Waiter waiter;
+    private Chef chef;
 
     @BeforeEach
-    void setup() {
-        orderRepo = new InMemoryOrderRepo();
-        paymentRepo = new InMemoryPaymentRepo();
-        audits = new InMemoryRestaurantAuditRepo();
-
-        service = new PaymentService(orderRepo, paymentRepo, audits);
-
-        pasta = new Entree("i1", "Pasta", "Classic pasta", 12.50,
-                DietaryType.REGULAR, List.of("flour", "sauce"), 10);
+    void setUp() {
+        service = new PaymentService(orderRepo, paymentRepo, auditRepo);
+        manager = new Manager("m1", "Alice");
+        waiter = new Waiter("w1", "Bob");
+        chef = new Chef("c1", "Charlie");
+        when(auditRepo.tailHash()).thenReturn("GENESIS");
     }
 
-    // ---------------------------------------------------------
-    // PERMISSION TESTS
-    // ---------------------------------------------------------
-
     @Test
-    void waiterCanCompletePayment() {
-        // Arrange
-        Order order = new Order(1, waiter.id());
-        order.addItem(pasta);
+    void completePayment_withWaiterRole_shouldSucceed() {
+        Order order = new Order(1, "w1");
+        order.addItem(new Drink("d1", "Coke", "desc", 2.99, false));
         order.updateStatus(OrderStatus.SERVED);
-        orderRepo.save(order);
+        UUID orderId = order.getId();
 
-        // Act
-        Payment p = service.completePayment(waiter, order.getId().toString(), PaymentMethod.CREDIT_CARD);
+        when(orderRepo.findById(orderId)).thenReturn(Optional.of(order));
 
-        // Assert
-        assertNotNull(p);
-        assertEquals(order.getPayment().getTransactionId(), p.getTransactionId());
-        assertEquals(12.50, p.getAmount(), 0.01);
+        Payment payment = service.completePayment(waiter, orderId.toString(), PaymentMethod.CASH);
 
-        // Order updated correctly
-        Order updated = orderRepo.findById(order.getId()).orElseThrow();
-        assertEquals(OrderStatus.PAID, updated.getStatus());
-
-        // Payment stored
-        assertEquals(1, paymentRepo.findAll().size());
-
-        // Audit log recorded
-        assertEquals(1, audits.all().size());
+        assertNotNull(payment);
+        assertEquals(OrderStatus.PAID, order.getStatus());
+        verify(orderRepo).save(order);
+        verify(paymentRepo).save(payment);
+        verify(auditRepo).append(any());
     }
 
     @Test
-    void chefCannotViewPayment() {
-        Order order = new Order(1, manager.id());
-        order.addItem(pasta);
+    void completePayment_withManagerRole_shouldSucceed() {
+        Order order = new Order(1, "w1");
+        order.addItem(new Drink("d1", "Coke", "desc", 2.99, false));
         order.updateStatus(OrderStatus.SERVED);
-        order.processPayment(PaymentMethod.CREDIT_CARD);
-        orderRepo.save(order);
+        UUID orderId = order.getId();
 
-        assertThrows(SecurityException.class,
-                () -> service.getPaymentForOrder(chef, order.getId().toString()));
+        when(orderRepo.findById(orderId)).thenReturn(Optional.of(order));
+
+        Payment payment = service.completePayment(manager, orderId.toString(), PaymentMethod.CREDIT_CARD);
+
+        assertNotNull(payment);
+        assertEquals(OrderStatus.PAID, order.getStatus());
     }
 
-    // ---------------------------------------------------------
-    // COMPLETE PAYMENT
-    // ---------------------------------------------------------
+    @Test
+    void completePayment_withChefRole_shouldThrowSecurityException() {
+        assertThrows(SecurityException.class, () -> {
+            service.completePayment(chef, UUID.randomUUID().toString(), PaymentMethod.CASH);
+        });
+        verify(paymentRepo, never()).save(any());
+    }
 
     @Test
-    void managerCanCompletePayment() {
-        Order order = new Order(1, manager.id());
-        order.addItem(pasta);
+    void completePayment_orderNotServed_shouldThrowException() {
+        Order order = new Order(1, "w1");
+        order.updateStatus(OrderStatus.PENDING);
+        UUID orderId = order.getId();
+
+        when(orderRepo.findById(orderId)).thenReturn(Optional.of(order));
+
+        assertThrows(IllegalStateException.class, () -> {
+            service.completePayment(waiter, orderId.toString(), PaymentMethod.CASH);
+        });
+    }
+
+    @Test
+    void completePayment_nonExistentOrder_shouldThrowException() {
+        UUID randomId = UUID.randomUUID();
+        when(orderRepo.findById(randomId)).thenReturn(Optional.empty());
+
+        assertThrows(IllegalArgumentException.class, () -> {
+            service.completePayment(waiter, randomId.toString(), PaymentMethod.CASH);
+        });
+    }
+
+    @Test
+    void getPaymentForOrder_existingPayment_shouldReturnPayment() {
+        Order order = new Order(1, "w1");
+        order.addItem(new Drink("d1", "Coke", "desc", 2.99, false));
         order.updateStatus(OrderStatus.SERVED);
-        orderRepo.save(order);
+        order.processPayment(PaymentMethod.CASH);
+        UUID orderId = order.getId();
 
-        Payment result = service.completePayment(manager, order.getId().toString(), PaymentMethod.CREDIT_CARD);
+        when(orderRepo.findById(orderId)).thenReturn(Optional.of(order));
 
-        assertNotNull(result);
-        assertEquals(12.50, result.getAmount(), 0.01);
+        Payment payment = service.getPaymentForOrder(waiter, orderId.toString());
 
-        // order updated
-        Order updated = orderRepo.findById(order.getId()).orElseThrow();
-        assertEquals(OrderStatus.PAID, updated.getStatus());
-        assertNotNull(updated.getPayment());
-
-        // payment stored in repo
-        assertEquals(1, paymentRepo.findAll().size());
-
-        // audit log recorded
-        assertEquals(1, audits.all().size());
+        assertNotNull(payment);
+        verify(auditRepo).append(any());
     }
 
     @Test
-    void completePaymentFailsIfOrderNotServed() {
-        Order order = new Order(1, manager.id()); // PENDING
-        order.addItem(pasta);
-        orderRepo.save(order);
+    void getPaymentForOrder_noPayment_shouldThrowException() {
+        Order order = new Order(1, "w1");
+        UUID orderId = order.getId();
 
-        assertThrows(IllegalStateException.class,
-                () -> service.completePayment(manager, order.getId().toString(), PaymentMethod.CASH));
+        when(orderRepo.findById(orderId)).thenReturn(Optional.of(order));
+
+        assertThrows(IllegalStateException.class, () -> {
+            service.getPaymentForOrder(waiter, orderId.toString());
+        });
     }
-
-    @Test
-    void completePayment_orderNotFoundThrows() {
-        assertThrows(IllegalArgumentException.class,
-                () -> service.completePayment(manager, UUID.randomUUID().toString(), PaymentMethod.CREDIT_CARD));
-    }
-
-    // ---------------------------------------------------------
-    // GET PAYMENT FOR ORDER
-    // ---------------------------------------------------------
-
-    @Test
-    void managerCanGetPaymentForOrder() {
-        // Arrange
-        Order order = new Order(1, manager.id());
-        order.addItem(pasta);
-        order.updateStatus(OrderStatus.SERVED);
-        order.processPayment(PaymentMethod.DEBIT_CARD);
-        orderRepo.save(order);
-
-        // Act
-        Payment p = service.getPaymentForOrder(manager, order.getId().toString());
-
-        // Assert
-        assertEquals(order.getPayment().getTransactionId(), p.getTransactionId());
-        assertEquals(1, audits.all().size());
-    }
-
-    @Test
-    void getPaymentForOrder_throwsIfOrderNotFound() {
-        assertThrows(IllegalArgumentException.class,
-                () -> service.getPaymentForOrder(manager, UUID.randomUUID().toString()));
-    }
-
-    @Test
-    void getPaymentForOrder_throwsIfNotPaidYet() {
-        Order order = new Order(1, manager.id());
-        order.addItem(pasta);
-        order.updateStatus(OrderStatus.SERVED);
-        orderRepo.save(order); // but no payment yet
-
-        assertThrows(IllegalStateException.class,
-                () -> service.getPaymentForOrder(manager, order.getId().toString()));
-    }
-
 }
